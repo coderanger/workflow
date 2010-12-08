@@ -28,6 +28,7 @@ setup(
         'Programming Language :: Python',
     ],
     zip_safe = False,
+    install_requires = ['Flask', 'Flask-XML-RPC'],
     tests_require = ['unittest2'],
     test_suite = 'unittest2.collector',
 )
