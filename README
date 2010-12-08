@@ -1,0 +1,9 @@
+Experiments in async Python
+===========================
+
+This is a proof-of-concept for a special Python environment that can make
+code asynchronous in a transparent manner.
+
+To run it, first start ``workflow/adder_service.py`` in one terminal and then
+``workflow/app.py`` in another. If all goes correctly, you should see the line
+``COMPLETE: 4`` print out from app.py after a short delay.
