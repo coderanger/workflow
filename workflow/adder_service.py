@@ -7,7 +7,7 @@ from flaskext.xmlrpc import XMLRPCHandler, Fault
 
 def delay_add(cb, uuid, x, y):
     print 'Starting delay_add'
-    time.sleep(2)
+    time.sleep(x)
     server = xmlrpclib.ServerProxy(cb)
     server.defer_return(uuid, x+y)
     print 'Response sent'

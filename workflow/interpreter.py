@@ -73,6 +73,14 @@ class NodePath(object):
                 return node.keywords[i]
         return NodePathError
 
+    def resolve_All(self, node, part):
+        n = int(part)
+        if not (0 <= n < len(node.args)):
+            raise NodePathError
+        return node.args[n]
+    
+    resolve_Any = resolve_All
+
     def __add__(self, node):
         prev = self()
         fn = getattr(self, 'add_'+type(prev).__name__, None)
@@ -118,6 +126,43 @@ class NodePath(object):
     
     def add_Name(self, prev, node):
         return ''
+    
+    def add_All(self, prev, node):
+        for i, n in enumerate(prev.args):
+            if n is node:
+                return i
+    
+    add_Any = add_All
+
+
+class Parallel(ast.expr):
+    _fields = ('args',)
+    
+    def __init__(self, args=None):
+        if args is not None:
+            self.args = args
+
+
+class All(Parallel):
+    pass
+
+
+class Any(Parallel):
+    pass
+
+
+class AnyAllNodeTransformer(ast.NodeTransformer):
+    """Transform invocations of the special functions any() and all() into
+    custom nodes for further processing.
+    """
+    
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name):
+            if node.func.id == 'all':
+                return All(node.args)
+            if node.func.id == 'any':
+                return Any(node.args)
+        return node
 
 
 class Defer(object):
@@ -128,16 +173,15 @@ class Defer(object):
 
 class Evaluator(object):
 
-    def __init__(self, root):
-        self.root = root
+    def __init__(self, code, complete_cb=None):
+        self.code = code
+        root = ast.parse(code)
+        self.root = AnyAllNodeTransformer().visit(root)
+        self.complete_cb = complete_cb
         self.running = True
         self.complete = False
         self.return_value = None
         self.defer = {}
-
-    @classmethod
-    def from_string(cls, code):
-        return cls(ast.parse(code))
 
     def __call__(self):
         root_path = NodePath(self.root)
@@ -173,26 +217,33 @@ class Evaluator(object):
         if hasattr(node, '_value') or hasattr(node, '_defer'):
             return # Already evaluated or waiting
         
-        for child in ast.iter_child_nodes(node):
-            if not hasattr(child, '_value'):
-                break
-        else:
-            # Everything has values, we can fully evaluate this node
-            fn = getattr(self, 'eval_'+type(node).__name__)
-            ret = fn(node, path)
-            if not isinstance(ret, Defer):
-                node._value = ret
-                self._found_value = True
-            return
-        
+        complete_all = True
+        complete_any = False
         for child in ast.iter_child_nodes(node):
             self._evaluate(child, path + child)
+            if not hasattr(child, '_value') or isinstance(child._value, Defer):
+                complete_all = False
+                if not isinstance(node, Parallel):
+                    # For all nodes other than Any and All, force exection to be 
+                    # linear by only expanding a child once all prior children
+                    # are fully evaluated
+                    break
+            else:
+                complete_any = True
+        
+        if complete_all or (isinstance(node, Any) and complete_any):
+            # Everything has values, we can fully evaluate this node
+            fn = getattr(self, 'eval_'+type(node).__name__)
+            node._value = fn(node, path)
+            if not isinstance(node._value, Defer):
+                self._found_value = True
 
     def eval_Module(self, node, path):
         # We have hit the top level, completed
         self.return_value = node.body[-1]._value
         self.complete = True
-        print 'COMPLETE: %s'%self.return_value
+        if self.complete_cb:
+            self.complete_cb(self.return_value)
         return self.return_value
 
     def eval_Expr(self, node, path):
@@ -235,3 +286,11 @@ class Evaluator(object):
     def eval_Load(self, node, path):
         # Still not sure what this is for
         return
+
+    def eval_All(self, node, path):
+        return [n._value for n in node.args]
+
+    def eval_Any(self, node, path):
+        for child in node.args:
+            if hasattr(child, '_value') and not isinstance(child._value, Defer):
+                return child._value

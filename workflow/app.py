@@ -8,7 +8,9 @@ app = Flask(__name__)
 handler = XMLRPCHandler('api')
 handler.connect(app, '/')
 
-e = Evaluator.from_string('add(1, 3)')
+def cb(value):
+    print 'COMPLETE: %s'%value
+e = Evaluator('any(add(1, 3), add(4, 5))', cb)
 
 @handler.register
 def defer_return(id, value):
